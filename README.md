@@ -1,4 +1,4 @@
-# evolved_Cellular_automata
+# evolved_cellular_automata
 This repository contains code that uses a genetic algorithm to search for specific 3D shapes that result in 2D cellular automata being plotted in time, with each cell being plotted as a cube, and each generation being stacked on the last.
 
 
