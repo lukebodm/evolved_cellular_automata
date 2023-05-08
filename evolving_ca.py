@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 from itertools import product
 import random
 import pickle
@@ -10,9 +9,9 @@ import time
 ####################################################################################
 
 class CA:
-    
+
     def __init__(self, simulation):
-        
+
         self.rule_dna = np.random.randint(0, 2, size=512)
         self.grid = simulation.solution_grids[0]
         self.solution_grids = simulation.solution_grids
@@ -34,7 +33,7 @@ class CA:
                 # Get the neighbors for the current cell
                 neighbors = self.get_neighbors(i, j)
 
-                # Find the index in the rule_dna list corresponding to the neighbor configuration
+        # Find the index in the rule_dna list corresponding to the neighbor configuration
                 index = self.find_rule(neighbors)
 
                 # Update the current cell based on the value at that index in the rule_dna list
@@ -47,7 +46,7 @@ class CA:
         self.t += 1
 
         # update score
-        self.fitness()
+        #self.fitness()
 
     def get_neighbors(self, i, j):
         """
@@ -75,7 +74,7 @@ class CA:
         """
         input:   a list of neighbor values
         output:  an index to check ones own rule list for update value
-        
+
         this function might be really slow. I need to time it.
         """
         # use numpy's all function to check for equality between each 
@@ -87,21 +86,32 @@ class CA:
 
         # print the indices
         return index
-    
+
     def fitness(self):
         """
         calculate fitness score by comparing to solution grid at same t
         """
-        solution_grid = self.solution_grids[self.t]
+        self.reset_CA()
+
+        my_grid = [self.solution_grids[0]]
+
+        for generation in range(self.number_of_updates):
+            self.update()
+            my_grid.append(self.grid)
 
         # Count the number of cells that differ between the two grids
-        diff_count = np.count_nonzero(self.grid != solution_grid)
+        diff_count = np.count_nonzero(np.array(my_grid) - np.array(self.solution_grids))
 
         # Normalize the score by the total number of cells
-        score = 1 - diff_count / self.grid.size
+        score = 1 - diff_count / (len(self.solution_grids)*(len(self.solution_grids[0])**2))
 
-        self.fitness_score += score
-        
+        self.fitness_score = score
+
+    def reset_CA(self):
+        self.t = 0
+        self.fitness_score = 0
+        self.grid = self.solution_grids[0]
+
     def plot(self):
         """
         plot 2D cellular automata at current t
@@ -113,37 +123,37 @@ class CA:
         plt.gca().set_yticklabels([])
         plt.show()
 
-        
+
 ############################################################################
 
 class Simulation:
-    
-    def __init__(self, solution_grids, pop_size, target_fitness, elite_percentage, reproducers_percentage, mutation_rate, CA_list=False):
-        
+
+    def __init__(self, solution_grids, CA_list=False):
+
+        # parameters that the user can change
+        self.pop_size = 100
+        self.target_fitness = .95
+        self.elite_percentage = 0.02
+        self.reproducers_percentage = 0.5
+        self.mutation_rate = 0.02
+
         self.solution_grids = solution_grids
-        self.pop_size = pop_size
-        self.grid = solution_grids[0]           # make the initial state match the first state of the solution.
-        self.target_fitness = target_fitness    # number between 0 and 1, 1 being perfection (loop never stops) 
+        self.grid = solution_grids[0]           # initial state match the first state
         self.number_of_updates = len(solution_grids)-1
-        self.elite_number = int(pop_size*elite_percentage)
-        self.reproducers_percentage = reproducers_percentage
-        self.mutation_rate = mutation_rate
+        self.elite_number = int(self.pop_size*self.elite_percentage)
         self.rule_size = 512
         self.all_possible_rules = np.array(list(product([0, 1], repeat=9)))
-        
+
         # if user passed in a CA list, use it, if not, make a fresh one
         if CA_list == False:
-            self.CAs = [CA(self) for object in range(pop_size)]
+            self.CAs = [CA(self) for object in range(self.pop_size)]
         else:
             self.CAs = CA_list
-        
+
     def reset_CAs(self):
         for ca in self.CAs:
-            ca.t = 0
-            ca.fitness_score = 0
-            ca.grid = self.solution_grids[0]
-            
-        
+            ca.reset_CA()
+
     def two_point_crossover(self, ca1, ca2):
         # Select two random points for crossover
         while True:
@@ -168,10 +178,10 @@ class Simulation:
 
 
     def mutate(self, offspring):
-        
+
         # calculate the number of entries to mutate
         num_mutations = int(self.rule_size * self.mutation_rate)
-        
+
         for ca in offspring:
             # randomly select indices to mutate
             indices = np.random.choice(self.rule_size, num_mutations, replace=False)
@@ -179,25 +189,31 @@ class Simulation:
             # randomly set selected indices to 0 or 1
             ca.rule_dna[indices] = np.random.randint(2, size=num_mutations)
 
-            
+
     def update_generation(self):
         for ca in self.CAs:
-            for _ in range(self.number_of_updates):
-                ca.update()
-    
-    
+            ca.fitness()
+
+        # sort the CAs based on fitness_score
+        self.CAs =  sorted(self.CAs, key=lambda x: x.fitness_score, reverse=True)
+
+
+
+    def get_reproducers(self):
+        """
+        returns the top percentage of most fit CAs, based on self.reproducers_percentage
+        """
+
+
+
     def compute_next_gen(self):
-        """ 
+        """
         input:  a list of cellular automata
         output: a separate list that represents the next_generation
         """
-    
-        # sort the CAs based on fitness_score
-        sorted_cas = sorted(self.CAs, key=lambda x: x.fitness_score, reverse=True)
-
         # select the elite and the breeding population
-        elite = sorted_cas[:self.elite_number]
-        top_percent = sorted_cas[:int(self.pop_size*self.reproducers_percentage)]
+        elite = self.CAs[: self.elite_number]
+        top_percent = self.CAs[:int(self.pop_size*self.reproducers_percentage)]
 
         # calculate the number of offspring to produce
         num_offspring = self.pop_size - self.elite_number
@@ -218,75 +234,72 @@ class Simulation:
 
         # reset the elite fitness_score, time, and initial_state
         for e in elite:
-            e.fitness_score = 0
-            e.t = 0
-            e.grid = self.solution_grids[0]
+            e.reset_CA()
 
         # mutate offspring
         self.mutate(offspring)
 
         # combine the top 10% and the offspring into a new list
         next_generation = elite + offspring
-    
+
         return next_generation
-    
-    
+
+    def log_results(self, generation):
+        # find highest_fitness_score
+        highest_fitness_score = round(self.CAs[0].fitness_score, 5)
+        combined_scores = sum([x.fitness_score for x in self.CAs])
+        avg_fitness = round(combined_scores / len(self.CAs), 5)
+        print(f'generation: {generation} | highest fitness score: {highest_fitness_score} | avg fitness: {avg_fitness}')
+
     def run(self):
-        
+
         # Create a folder with a timestamp as its name to save each generation
         folder_name = time.strftime('saved_sims/%Y-%m-%d_%H-%M-%S')
         os.makedirs(folder_name)
-        
+
         highest_fitness_score = 0
         iteration = 0
-        
+
         begining_time = time.monotonic()
-        
+
         # Run simulations
         while(iteration < 1000):
             start_time = time.monotonic()
-            
+
             self.update_generation()
 
-            # find highest_fitness_score
-            sorted_cas = sorted(self.CAs, key=lambda x: x.fitness_score, reverse=True)
-            highest_fitness_score = sorted_cas[0].fitness_score
-            combined_scores = [x.fitness_score for x in sorted_cas]
-            
             # log some information
-            print("generation number ", iteration)
-            print("highest fitness score: ", round(highest_fitness_score, 7), "     \
-                   total fitness score: ", round(sum(combined_scores), 7))
-            
+            self.log_results(iteration)
+
             # open a file for writing
-            file_name = f"{folder_name}/ca_generation_{iteration}.pkl"
+            file_name = f"{folder_name}/simulation.pkl"
             with open(file_name, 'wb') as f:
                 # Write the simulation object to the file
                 pickle.dump(self, f)
 
-            if highest_fitness_score >= self.target_fitness:
+            if self.CAs[0].fitness_score >= self.target_fitness:
                 break
 
             # build the next generation
             next_gen = self.compute_next_gen()
-            
+
             end_time = time.monotonic()
             generation_time = end_time - start_time
-            
+
             print(f"runtime: {generation_time:.2f} seconds\n")
-            
+
             self.CAs = next_gen
 
             # print the generation count
             iteration += 1
-            
+
         final_time = time.monotonic()
-        total_time = final_time - begining_time 
+        total_time = final_time - begining_time
         print(f"\ntotal runtime: {total_time:.2f} seconds\n")
         return
-    
+
 ############################################################################
-    
+
 def plot_ca(CA):
     """
     plot any cellular automata
@@ -294,7 +307,7 @@ def plot_ca(CA):
     copy_ca = CA
     copy_ca.grid = copy_ca.solution_grids[0]
     copy_ca.t = 0
-    
+
     # create a list to hold the grids for each time step
     grids = []
     grids.append(copy_ca.solution_grids[0])
@@ -319,12 +332,12 @@ def plot_ca(CA):
     ax.xaxis.set_pane_color((0, 0, 0, 0.0))
     ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.set_facecolor('white') 
+    ax.set_facecolor('white')
     ax.xaxis._axinfo["grid"]['color'] =  (.61,.81,.87,1)
     ax.yaxis._axinfo["grid"]['color'] =  (.61,.81,.87,1)
     ax.zaxis._axinfo["grid"]['color'] =  (.61,.81,.87,1)
     ax.view_init(-45, -45, 20)
-    
+
     plt.show()
 
 def plot_solution_grid(solution_grids):
@@ -355,45 +368,45 @@ def plot_solution_grid(solution_grids):
     ax.xaxis.set_pane_color((0, 0, 0, 0.0))
     ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.set_facecolor('white') 
+    ax.set_facecolor('white')
     ax.xaxis._axinfo["grid"]['color'] =  (.61,.81,.87,1)
     ax.yaxis._axinfo["grid"]['color'] =  (.61,.81,.87,1)
     ax.zaxis._axinfo["grid"]['color'] =  (.61,.81,.87,1)
     ax.view_init(-45, -45, 20)
-    
+
     plt.show()
-    
-    
+
+
 def get_centered_sq(size, center_sq_size):
-    """ 
+    """
     creates a square of 1's in the center of the grid for an initial state
     """
-    
+
     center_sq = np.zeros((size, size))
     center_x, center_y = center_sq.shape[0] // 2, center_sq.shape[1] // 2
     half_sq_size = int(center_sq_size / 2)
     center_sq[center_x-half_sq_size:center_x+half_sq_size, center_y-half_sq_size:center_y+half_sq_size] = 1
-    
+
     return center_sq
 
 def pyramid_solution_grids():
     pyramid_solution_grids = []
-    
+
     grid_size = 16
     initial_sq_size = 10
-    
+
     for i in range(5):
         pyramid_solution_grids.append(get_centered_sq(grid_size, initial_sq_size-(2*i)))
-    
+
     return pyramid_solution_grids
 
 def nail_solution_grids():
-    
+
     nail_solution_grids = []
-    
+
     grid_size = 22
     initial_sq_size = 15
-    
+
     for i in range(27):
         if i <= 3:
             nail_solution_grids.append(get_centered_sq(grid_size, initial_sq_size-(2*i)))
@@ -401,6 +414,6 @@ def nail_solution_grids():
             nail_solution_grids.append(get_centered_sq(grid_size, initial_sq_size-(2*3)))
         else:
             nail_solution_grids.append(get_centered_sq(grid_size, initial_sq_size-(2*(i-20))))
-            
+
     return nail_solution_grids
 
